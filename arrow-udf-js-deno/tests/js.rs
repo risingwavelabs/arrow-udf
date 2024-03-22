@@ -19,9 +19,9 @@ use arrow_array::{temporal_conversions::time_to_time32ms, Date32Array, Time32Mil
 
 use arrow_array::{
     types::*, ArrayRef, BinaryArray, Int32Array, LargeBinaryArray, LargeStringArray, ListArray,
-    RecordBatch, StringArray, StructArray,
+    PrimitiveArray, RecordBatch, StringArray, StructArray,
 };
-use arrow_cast::pretty::pretty_format_batches;
+use arrow_cast::{display::ArrayFormatter, pretty::pretty_format_batches};
 
 #[cfg(feature = "with-dayjs")]
 use arrow_schema::TimeUnit;
@@ -315,6 +315,113 @@ async fn test_decimal_add() {
         | 302e30303033 |
         +--------------+"#]],
     );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_primitive_types() {
+    let runtime = Runtime::new();
+
+    async fn create_function<T>(
+        runtime: &Runtime,
+        data_type: DataType,
+        value: T::Native,
+    ) -> (String, RecordBatch)
+    where
+        T: ArrowPrimitiveType,
+        PrimitiveArray<T>: From<Vec<T::Native>>,
+    {
+        let name = format!("{}_type", data_type.to_string().to_lowercase());
+        let js_code = format!(
+            r#"
+            export function {}(a) {{
+                return a;
+            }}
+            "#,
+            name
+        );
+
+        runtime
+            .add_function(
+                &name,
+                data_type.clone(),
+                CallMode::ReturnNullOnNullInput,
+                &js_code,
+            )
+            .await
+            .unwrap();
+
+        let schema = Schema::new(vec![Field::new("a", data_type, true)]);
+        //let arg0 = T::from(vec![9007199254740991_i64]);
+
+        let arg0 = PrimitiveArray::<T>::from(vec![value]);
+        let input = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arg0)]).unwrap();
+
+        (name, input)
+    }
+
+    let cases = [
+        (
+            create_function::<Int8Type>(&runtime, DataType::Int8, 1).await,
+            "1",
+            DataType::Int8,
+        ),
+        (
+            create_function::<Int16Type>(&runtime, DataType::Int16, 1).await,
+            "1",
+            DataType::Int16,
+        ),
+        (
+            create_function::<Int32Type>(&runtime, DataType::Int32, 1).await,
+            "1",
+            DataType::Int32,
+        ),
+        (
+            create_function::<Int64Type>(&runtime, DataType::Int64, 9007199254740991_i64).await,
+            "9007199254740991",
+            DataType::Int64,
+        ),
+        (
+            create_function::<UInt8Type>(&runtime, DataType::UInt8, 1).await,
+            "1",
+            DataType::UInt8,
+        ),
+        (
+            create_function::<UInt16Type>(&runtime, DataType::UInt16, 1).await,
+            "1",
+            DataType::UInt16,
+        ),
+        (
+            create_function::<UInt32Type>(&runtime, DataType::UInt32, 1).await,
+            "1",
+            DataType::UInt32,
+        ),
+        (
+            create_function::<UInt64Type>(&runtime, DataType::UInt64, 9007199254740991_u64).await,
+            "9007199254740991",
+            DataType::UInt64,
+        ),
+        (
+            create_function::<Float32Type>(&runtime, DataType::Float32, 0.1_f32).await,
+            "0.1",
+            DataType::Float32,
+        ),
+        (
+            create_function::<Float64Type>(&runtime, DataType::Float64, 0.1_f64).await,
+            "0.1",
+            DataType::Float64,
+        ),
+    ];
+
+    for ((name, input), expected, expected_type) in cases.into_iter() {
+        let output = runtime.call(&name, input).await.unwrap();
+        let col = output.column(0);
+
+        assert_eq!(col.data_type(), &expected_type);
+
+        let formatter = ArrayFormatter::try_new(col.as_ref(), &Default::default()).unwrap();
+        let result = formatter.value(0).to_string();
+        assert_eq!(result, expected);
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]

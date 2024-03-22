@@ -288,8 +288,11 @@ pub fn build_array(
                     builder.append_null();
                 } else if val.is_big_int() {
                     let val = val
-                        .integer_value(scope)
-                        .context("Couldn't convert to i64")?;
+                        .to_big_int(scope)
+                        .context("Couldn't convert to BigInt")?;
+
+                    let (val, _) = val.i64_value();
+
                     builder.append_value(val);
                 } else if val.is_number_object() || val.is_number() {
                     let number = v8::Local::<v8::Number>::try_from(val)?;
@@ -353,6 +356,14 @@ pub fn build_array(
                 let val = v8::Local::new(scope, val);
                 if val.is_null() || val.is_undefined() {
                     builder.append_null();
+                } else if val.is_big_int() {
+                    let val = val
+                        .to_big_int(scope)
+                        .context("Couldn't convert to BigInt")?;
+
+                    let (val, _) = val.u64_value();
+
+                    builder.append_value(val);
                 } else if val.is_number() || val.is_number_object() {
                     let val = val.number_value(scope).context("Couldn't convert to i32")?;
                     builder.append_value(val as u64);
@@ -378,14 +389,14 @@ pub fn build_array(
             Ok(Arc::new(builder.finish()))
         }
         DataType::Float64 => {
-            let mut builder = Float32Builder::with_capacity(values.len());
+            let mut builder = Float64Builder::with_capacity(values.len());
             for val in values {
                 let val = v8::Local::new(scope, val);
                 if val.is_null() || val.is_undefined() {
                     builder.append_null();
                 } else if val.is_number() || val.is_number_object() {
                     let val = val.number_value(scope).context("Couldn't convert to i32")?;
-                    builder.append_value(val as f32);
+                    builder.append_value(val);
                 } else {
                     return Err(anyhow::anyhow!("Invalid type"));
                 }
