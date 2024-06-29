@@ -8,11 +8,11 @@ keywords = ["arrow", "udf", "python"]
 license = "Apache-2.0"
 
 [dependencies]
-anyhow = "1"
-arrow-array = ">=50"
-arrow-buffer = ">=50"
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
 arrow-ipc = ">=50"
-arrow-schema = ">=50"
+arrow-schema = { workspace = true }
 pyo3 = "0.21"
 
 [build-dependencies]

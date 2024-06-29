@@ -10,9 +10,9 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1"
-arrow-array = ">=50"
+arrow-array = { workspace = true }
 arrow-buffer = ">=50"
-arrow-schema = ">=50"
+arrow-schema = { workspace = true }
 atomic-time = "0.1"
 rquickjs = { version = "0.6", features = ["array-buffer", "parallel"] }
 

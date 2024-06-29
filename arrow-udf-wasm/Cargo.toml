@@ -13,10 +13,10 @@ license = "Apache-2.0"
 build = ["tempfile"]
 
 [dependencies]
-anyhow = "1"
-arrow-array = ">=50"
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
 arrow-ipc = ">=50"
-arrow-schema = ">=50"
+arrow-schema = { workspace = true }
 async-trait = "0.1"
 base64 = "0.22"
 genawaiter = "0.99"
