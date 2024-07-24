@@ -8,6 +8,6 @@ edition = "2021"
 [dependencies]
 axum = { version = "0.6.2", features = ["headers", "json", "original-uri"] }
 futures = "0.3.24"
-hyper = { version = "0.14", features = ["client"] }
+hyper = { version = "1.4", features = ["client"] }
 serde_json = { workspace = true }
 tokio = { features = ["full"], workspace = true }
