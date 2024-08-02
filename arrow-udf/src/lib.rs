@@ -43,7 +43,6 @@ pub mod codegen {
     pub use genawaiter;
     #[cfg(feature = "global_registry")]
     pub use linkme;
-    pub use once_cell;
     pub use rust_decimal;
     pub use serde_json;
 }

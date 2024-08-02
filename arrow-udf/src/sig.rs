@@ -117,7 +117,7 @@ impl FunctionSignature {
 pub static SIGNATURES: [fn() -> FunctionSignature];
 
 /// Global function registry.
-pub static REGISTRY: once_cell::sync::Lazy<FunctionRegistry> = once_cell::sync::Lazy::new(|| {
+pub static REGISTRY: std::sync::LazyLock<FunctionRegistry> = std::sync::LazyLock::new(|| {
     let mut signatures = HashMap::<String, Vec<FunctionSignature>>::new();
     for sig in SIGNATURES {
         let sig = sig();

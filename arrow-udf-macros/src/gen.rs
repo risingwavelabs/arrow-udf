@@ -270,7 +270,7 @@ impl FunctionAttr {
                 yield_!(RecordBatch::try_new(SCHEMA.clone(), vec![index_array, value_array, #error_array]).unwrap());
             };
             quote! {{
-                static SCHEMA: once_cell::sync::Lazy<SchemaRef> = once_cell::sync::Lazy::new(|| {
+                static SCHEMA: std::sync::LazyLock<SchemaRef> = std::sync::LazyLock::new(|| {
                     Arc::new(Schema::new(vec![
                         Field::new("row", DataType::Int32, true),
                         #ret_data_type,
@@ -393,7 +393,7 @@ impl FunctionAttr {
                 #let_error_builder
                 #eval
 
-                static SCHEMA: once_cell::sync::Lazy<SchemaRef> = once_cell::sync::Lazy::new(|| {
+                static SCHEMA: std::sync::LazyLock<SchemaRef> = std::sync::LazyLock::new(|| {
                     Arc::new(Schema::new(vec![#ret_data_type, #error_field]))
                 });
                 Ok(RecordBatch::try_new(SCHEMA.clone(), vec![array, #error_array]).unwrap())
@@ -422,7 +422,6 @@ impl FunctionAttr {
             use ::arrow_udf::codegen::arrow_arith;
             use ::arrow_udf::codegen::arrow_schema;
             use ::arrow_udf::codegen::chrono;
-            use ::arrow_udf::codegen::once_cell;
             use ::arrow_udf::codegen::rust_decimal;
             use ::arrow_udf::codegen::serde_json;
 

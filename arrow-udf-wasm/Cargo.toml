@@ -20,7 +20,6 @@ arrow-schema = { workspace = true }
 async-trait = "0.1"
 base64 = "0.22"
 genawaiter = "0.99"
-once_cell = "1"
 tempfile = { version = "3", optional = true }
 wasi-common = "22"
 wasmtime = "22"
