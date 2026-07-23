@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776866492340,
+  "lastUpdate": 1784790767088,
   "repoUrl": "https://github.com/arrow-udf/arrow-udf",
   "entries": {
     "Rust Benchmark": [
@@ -17525,6 +17525,108 @@ window.BENCHMARK_DATA = {
             "name": "sum/python",
             "value": 134804,
             "range": "± 7697",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wangrunji0408@163.com",
+            "name": "Runji Wang",
+            "username": "wangrunji0408"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4915cf6c607fbee919fabfedc03eff13ab089230",
+          "message": "feat: add DuckDB list type support and duckdb module (#158)\n\n- Add duckdb feature with arrow-buffer and arrow-select dependencies\n- Add duckdb module with invoke_scalar_with_lists function\n- Support list input types (e.g. varchar[], int32[]) in codegen\n- Add tests for list scalar functions (list_lengths, sum_lists)\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T15:01:41+08:00",
+          "tree_id": "e5d48babd1deddfb73f28bd5c7194fb1573f500a",
+          "url": "https://github.com/arrow-udf/arrow-udf/commit/4915cf6c607fbee919fabfedc03eff13ab089230"
+        },
+        "date": 1784790766365,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "gcd/native",
+            "value": 3496,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/rust",
+            "value": 3583,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/wasm",
+            "value": 18633,
+            "range": "± 1178",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/js",
+            "value": 158341,
+            "range": "± 506",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/python",
+            "value": 189077,
+            "range": "± 1489",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/native",
+            "value": 25742,
+            "range": "± 1335",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/wasm",
+            "value": 291484,
+            "range": "± 25085",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/js",
+            "value": 4249046,
+            "range": "± 18829",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/python",
+            "value": 634613,
+            "range": "± 1595",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/js",
+            "value": 482530,
+            "range": "± 1814",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/python",
+            "value": 5464529,
+            "range": "± 32068",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/js",
+            "value": 102665,
+            "range": "± 578",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/python",
+            "value": 113388,
+            "range": "± 427",
             "unit": "ns/iter"
           }
         ]
