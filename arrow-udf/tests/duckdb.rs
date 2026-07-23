@@ -3,10 +3,24 @@
 use arrow_udf::function;
 use duckdb::{Connection, Result};
 use std::error::Error;
+use std::sync::Arc;
 
 #[function("hello_duckdb(varchar) -> varchar", duckdb = "HelloDuckdb")]
 fn hello_duckdb(name: &str) -> String {
     format!("Hello {}!", name)
+}
+
+#[function("list_lengths(varchar[]) -> int32[]", duckdb = "ListLengths")]
+fn list_lengths(values: &arrow_array::StringArray) -> Vec<i32> {
+    values
+        .iter()
+        .map(|value| value.map_or(-1, |s| s.len() as i32))
+        .collect()
+}
+
+#[function("sum_lists(int32[], int32[]) -> int32", duckdb = "SumLists")]
+fn sum_lists(left: &[i32], right: &[i32]) -> i32 {
+    left.iter().chain(right).sum()
 }
 
 #[function("generate_numbers(int32) ->> int32", duckdb = "GenerateNumbers")]
@@ -47,6 +61,39 @@ fn test_duckdb_scalar_function() -> Result<(), Box<dyn Error>> {
         .unwrap();
     assert_eq!(string_array.value(0), "Hello world!");
 
+    Ok(())
+}
+
+#[test]
+fn test_duckdb_list_scalar_function() -> Result<(), Box<dyn Error>> {
+    let conn = Connection::open_in_memory()?;
+    conn.register_scalar_function::<ListLengths>("list_lengths")?;
+    conn.register_scalar_function::<SumLists>("sum_lists")?;
+
+    let batches = conn
+        .prepare("SELECT list_lengths(v) FROM (VALUES (['a', 'hello']), (['xyz'])) t(v)")?
+        .query_arrow([])?
+        .collect::<Vec<_>>();
+    let values = batches[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow_array::ListArray>()
+        .unwrap();
+    let first = values.value(0);
+    let first = first
+        .as_any()
+        .downcast_ref::<arrow_array::Int32Array>()
+        .unwrap();
+    let second = values.value(1);
+    let second = second
+        .as_any()
+        .downcast_ref::<arrow_array::Int32Array>()
+        .unwrap();
+
+    assert_eq!(first.values(), &[1, 5]);
+    assert_eq!(second.values(), &[3]);
+    let sum: i32 = conn.query_row("SELECT sum_lists([1, 2], [3, 4])", [], |row| row.get(0))?;
+    assert_eq!(sum, 10);
     Ok(())
 }
 

@@ -21,6 +21,8 @@ pub use arrow_udf_macros::function;
 /// A specialized `Result` type for Arrow UDF operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[cfg(feature = "duckdb")]
+pub mod duckdb;
 pub mod ffi;
 #[cfg(feature = "global_registry")]
 pub mod sig;

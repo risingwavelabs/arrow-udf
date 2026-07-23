@@ -9,13 +9,16 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+duckdb = ["dep:duckdb", "dep:arrow-buffer", "dep:arrow-select"]
 global_registry = ["linkme", "arrow-udf-macros/global_registry"]
 
 [dependencies]
 arrow-arith.workspace = true
 arrow-array.workspace = true
+arrow-buffer = { workspace = true, optional = true }
 arrow-ipc.workspace = true
 arrow-schema.workspace = true
+arrow-select = { workspace = true, optional = true }
 arrow-udf-macros = { version = "=0.9.0", path = "arrow-udf-macros" }
 chrono = { version = "0.4", default-features = false }
 genawaiter2 = "0.100.1"
@@ -30,4 +33,5 @@ duckdb = { version = "=1.10502", features = [
 
 [dev-dependencies]
 arrow-cast = { workspace = true, features = ["prettyprint"] }
+duckdb = { version = "=1.10502", features = ["bundled"] }
 expect-test = "1"

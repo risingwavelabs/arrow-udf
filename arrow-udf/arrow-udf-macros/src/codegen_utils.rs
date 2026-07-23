@@ -123,6 +123,34 @@ impl FunctionAttr {
         let struct_ident = format_ident!("{}", struct_name);
         let arg_types = self.args.iter().map(|ty| data_type(ty));
         let ret_type = data_type(&self.ret);
+        let has_list_input = self.args.iter().any(|ty| ty.ends_with("[]"));
+        if has_list_input {
+            return quote! {
+                pub struct #struct_ident;
+
+                impl ::duckdb::vscalar::VScalar for #struct_ident {
+                    type State = ();
+
+                    unsafe fn invoke(
+                        _: &Self::State,
+                        input: &mut ::duckdb::core::DataChunkHandle,
+                        output: &mut dyn ::duckdb::vtab::arrow::WritableVector,
+                    ) -> Result<(), Box<dyn std::error::Error>> {
+                        let array = ::arrow_udf::duckdb::invoke_scalar_with_lists(#eval_name, input)?;
+                        ::duckdb::vtab::arrow::write_arrow_array_to_vector(&array, output)
+                    }
+
+                    fn signatures() -> Vec<::duckdb::vscalar::ScalarFunctionSignature> {
+                        use ::arrow_udf::codegen::arrow_schema;
+                        use ::duckdb::vtab::arrow::to_duckdb_logical_type;
+                        vec![::duckdb::vscalar::ScalarFunctionSignature::exact(
+                            vec![#(to_duckdb_logical_type(&#arg_types).expect("type should be converted")),*],
+                            to_duckdb_logical_type(&#ret_type).expect("type should be converted"),
+                        )]
+                    }
+                }
+            };
+        }
         quote! {
             pub struct #struct_ident;
 
