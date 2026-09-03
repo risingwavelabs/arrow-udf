@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788418392121,
+  "lastUpdate": 1788419604474,
   "repoUrl": "https://github.com/arrow-udf/arrow-udf",
   "entries": {
     "Rust Benchmark": [
@@ -17729,6 +17729,108 @@ window.BENCHMARK_DATA = {
             "name": "sum/python",
             "value": 109676,
             "range": "± 546",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "31772373+yuhao-su@users.noreply.github.com",
+            "name": "Yuhao Su",
+            "username": "yuhao-su"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0153a80e425086ef286140c81771fc4054ae2e7e",
+          "message": "fix(python): match the `as_py` signature pyarrow 20 gave `Scalar` (#161)\n\n## Why\n\n`arrow_udf` 0.3.1 pins `pyarrow>=19,<20`, so it cannot be installed on\nPython 3.14 (pyarrow's first 3.14 wheels are 22.0.0).\n\nThe pin dodges #129: pyarrow 20 added the keyword-only `maps_as_pydicts`\nto `Scalar.as_py`, while `JsonScalar.as_py` / `DecimalScalar.as_py` kept\nthe pyarrow 19 signature `(self)`, so from 20 on they narrow the method\nthey override:\n\n```\nTypeError: JsonScalar.as_py() got an unexpected keyword argument 'maps_as_pydicts'\n```\n\n## What changed\n\n- Both overrides restate the base signature, `(self, *,\nmaps_as_pydicts=None)`. The argument is ignored: the storage is a\nstring, so there is no arrow map for it to apply to. Restated rather\nthan `**kwargs` so a future argument fails loudly instead of being\nswallowed.\n- `pyarrow>=19,<26`, version 0.3.2.\n- Regression test that calls `as_py` with the keyword directly, so it\nbites on every pyarrow version — including 25, which no longer forwards\nthe argument on the default `to_pylist` path but still fails on an\nexplicit call.\n- pytest moves into its own `test-python-package` job (3.12 / 3.14): a\nplain `pip install` + `pytest`, no Rust build, and `ci-pass` gates on\nit. `test-remote` keeps a `pip install` of the package for its\n`example.py` server.\n\n## Verification\n\n`pytest arrow_udf/test_udf.py` 4/4 on pyarrow 19–21 (CPython 3.13) and\n22–25 (CPython 3.14). Reverting just the signature fails the new test on\nall of them.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T07:00:50Z",
+          "tree_id": "d10f8dc3e6eb0ac240810800c30b4912b6135a7c",
+          "url": "https://github.com/arrow-udf/arrow-udf/commit/0153a80e425086ef286140c81771fc4054ae2e7e"
+        },
+        "date": 1788419603785,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "gcd/native",
+            "value": 4416,
+            "range": "± 49",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/rust",
+            "value": 4506,
+            "range": "± 96",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/wasm",
+            "value": 21592,
+            "range": "± 2308",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/js",
+            "value": 247102,
+            "range": "± 7110",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/python",
+            "value": 242530,
+            "range": "± 3547",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/native",
+            "value": 31278,
+            "range": "± 182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/wasm",
+            "value": 383285,
+            "range": "± 28579",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/js",
+            "value": 5982705,
+            "range": "± 219038",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/python",
+            "value": 893350,
+            "range": "± 12075",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/js",
+            "value": 669536,
+            "range": "± 4807",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/python",
+            "value": 8122620,
+            "range": "± 48479",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/js",
+            "value": 159394,
+            "range": "± 802",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/python",
+            "value": 141582,
+            "range": "± 1502",
             "unit": "ns/iter"
           }
         ]
