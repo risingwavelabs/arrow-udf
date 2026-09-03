@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784790767088,
+  "lastUpdate": 1788418392121,
   "repoUrl": "https://github.com/arrow-udf/arrow-udf",
   "entries": {
     "Rust Benchmark": [
@@ -17627,6 +17627,108 @@ window.BENCHMARK_DATA = {
             "name": "sum/python",
             "value": 113388,
             "range": "± 427",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "31772373+yuhao-su@users.noreply.github.com",
+            "name": "Yuhao Su",
+            "username": "yuhao-su"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41ea36e3ec5aaae9486214ca6a53f6722bc761b5",
+          "message": "build(python): bump pyo3 to 0.29 for CPython 3.14 support (#160)\n\n## Why\n\n`pyo3` 0.24 caps CPython at 3.13, so `pyo3-ffi`'s version check aborts\nthe build of the\nembedded Python runtime against 3.14:\n\n```\nthe configured Python interpreter version (3.14) is newer than PyO3's maximum supported version (3.13)\n```\n\n`pyo3` 0.29 supports 3.8–3.15, and also carries the fix for\n[RUSTSEC-2026-0177](https://rustsec.org/advisories/RUSTSEC-2026-0177)\n(missing `Sync` bound on `PyCFunction::new_closure`).\n\n## What changed\n\n`pyo3` 0.24.1 → 0.29.2, `pyo3-build-config` 0.24 → 0.29, plus the API\nadjustments the bump requires:\n\n| before | after | |\n|---|---|---|\n| `Python::with_gil` | `Python::attach` | renamed in 0.26, removed in\n0.29 |\n| `PyObject` | `Py<PyAny>` | alias deprecated in 0.26, removed in 0.29 |\n| `PyAnyMethods::downcast` | `Bound::cast` | deprecated in 0.27, removed\nin 0.29 |\n| `InterpreterConfig::version` field | `version()` getter | field access\ndeprecated in 0.29 |\n\n`build.rs` still rejects anything below Python 3.12.\n\n### `test_error`\n\nCPython 3.14 unified every `ZeroDivisionError` message to `division by\nzero`; through 3.13 the\n`//` operator produced `integer division or modulo by zero`, which the\nexpectation asserted\nverbatim. The UDF now divides with `/`, whose wording is identical on\n3.10 through 3.14, so one\nexpectation covers the whole supported range.\n\n### CI\n\nThe `test` job now runs on 3.12 (the minimum `build.rs` accepts) and\n3.14. The duckdb step\nprepends to `LD_LIBRARY_PATH` instead of overwriting it, since 3.14\nlinks a shared libpython\nthat setup-python puts on that path.\n\nThe matrix renames the checks from `test (<os>)` to `test (<os>,\n<python>)`, which the `main`\nruleset requires by name. A new `ci-pass` job gates on every other job\nso the ruleset can\nrequire that single check and stop tracking matrix names.\n\n### docs.rs\n\n`[package.metadata.docs.rs]` builds the docs without the `javascript`\nfeature: `rquickjs` 0.6 does\nnot compile on the nightly docs.rs uses (#162), which would otherwise\nfail the whole docs build.\nThe other runtimes are documented as before; the JavaScript module\nreturns with the rquickjs upgrade.\n\nThe `docs` job now runs `cargo docs-rs` on the published crates, so it\napplies that metadata the\nway docs.rs does instead of failing on `cargo doc --workspace`.\n\n## Verification\n\n`cargo test -p arrow-udf-runtime --features python`: 24 passed / 0\nfailed on both **CPython 3.14.6**\nand **3.13.12**. `cargo fmt --check` and `clippy` clean.\n\n## Note for maintainers\n\nNo `pyo3` type appears in the public API (`python::pyarrow` is a private\nmodule), so this is not a\nbreaking change for downstreams. A release would be appreciated —\nRisingWave consumes\n`arrow-udf-runtime` from crates.io and needs it to build against CPython\n3.14.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T01:42:54-05:00",
+          "tree_id": "ed23174938beb6844fac4e6c951b01563cbe8f1d",
+          "url": "https://github.com/arrow-udf/arrow-udf/commit/41ea36e3ec5aaae9486214ca6a53f6722bc761b5"
+        },
+        "date": 1788418391488,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "gcd/native",
+            "value": 3419,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/rust",
+            "value": 3488,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/wasm",
+            "value": 16620,
+            "range": "± 1505",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/js",
+            "value": 194206,
+            "range": "± 1009",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/python",
+            "value": 193007,
+            "range": "± 5107",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/native",
+            "value": 24163,
+            "range": "± 34",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/wasm",
+            "value": 296518,
+            "range": "± 15699",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/js",
+            "value": 4563789,
+            "range": "± 61741",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/python",
+            "value": 715765,
+            "range": "± 8135",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/js",
+            "value": 523006,
+            "range": "± 3028",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/python",
+            "value": 6295043,
+            "range": "± 70059",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/js",
+            "value": 118301,
+            "range": "± 1021",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/python",
+            "value": 109676,
+            "range": "± 546",
             "unit": "ns/iter"
           }
         ]
