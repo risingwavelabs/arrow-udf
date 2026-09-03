@@ -1,6 +1,6 @@
 [package]
 name = "arrow-udf"
-version = "0.9.0"
+version = "0.10.0"
 description = "User-defined function framework for arrow-rs."
 keywords = ["arrow", "udf"]
 categories = ["wasm"]
@@ -19,7 +19,7 @@ arrow-buffer = { workspace = true, optional = true }
 arrow-ipc.workspace = true
 arrow-schema.workspace = true
 arrow-select = { workspace = true, optional = true }
-arrow-udf-macros = { version = "=0.9.0", path = "arrow-udf-macros" }
+arrow-udf-macros = { version = "=0.10.0", path = "arrow-udf-macros" }
 chrono = { version = "0.4", default-features = false }
 genawaiter2 = "0.100.1"
 linkme = { version = "0.3", optional = true }

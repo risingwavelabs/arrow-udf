@@ -1,6 +1,6 @@
 [package]
 name = "arrow-udf-runtime"
-version = "0.9.0"
+version = "0.10.0"
 description = "Runtime for Arrow UDFs."
 keywords = ["arrow", "udf", "runtime"]
 edition.workspace = true
