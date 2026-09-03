@@ -16,7 +16,7 @@
 //! Convert arrow array from/to js objects.
 
 use anyhow::{Context, Result};
-use arrow_array::{ArrowNativeTypeOp, array::*, builder::*};
+use arrow_array::{array::*, builder::*};
 use arrow_buffer::{OffsetBuffer, i256};
 use arrow_schema::{DataType, Field, Fields};
 use rquickjs::{
@@ -405,22 +405,13 @@ impl Converter {
                 }
                 Some(x) if x == self.decimal_extension_name.as_ref() => {
                     let mut builder = StringBuilder::with_capacity(values.len(), 1024);
-                    let bigdecimal_to_string: Function = ctx
-                        .eval("BigDecimal.prototype.toString")
-                        .context("failed to get BigDecimal.prototype.string")?;
+                    let to_fixed = self.get_bigdecimal_to_fixed_function(ctx)?;
 
                     for val in values {
                         if val.is_null() || val.is_undefined() {
                             builder.append_null();
                         } else {
-                            let mut args = Args::new(ctx.clone(), 0);
-                            args.this(val)?;
-
-                            let string: String = bigdecimal_to_string.call_arg(args).context(
-                                "failed to convert BigDecimal to string. make sure you return a BigDecimal value",
-                            )?;
-
-                            builder.append_value(string);
+                            builder.append_value(bigdecimal_to_fixed(ctx, &to_fixed, val, None)?);
                         }
                     }
                     Ok(Arc::new(builder.finish()))
@@ -453,47 +444,44 @@ impl Converter {
                 let mut builder = Decimal128Builder::with_capacity(values.len())
                     .with_precision_and_scale(*precision, *scale)?;
 
-                let bigdecimal_to_precision: Function =
-                    self.get_bigdecimal_to_precision_function(ctx)?;
+                let scale = check_scale(*scale)?;
+                let to_fixed = self.get_bigdecimal_to_fixed_function(ctx)?;
 
                 for val in values {
                     if val.is_null() || val.is_undefined() {
                         builder.append_null();
                     } else {
-                        let mut args = Args::new(ctx.clone(), 0);
-                        args.this(val)?;
-                        args.push_arg(*precision)?;
-                        let string: String = bigdecimal_to_precision.call_arg(args).context(
-                            "failed to convert BigDecimal to string. make sure you return a BigDecimal value",
-                        )?;
-
-                        let decimal_integer = self.decimal_string_to_i128(&string, *scale)?;
-                        builder.append_value(decimal_integer);
+                        let string = bigdecimal_to_fixed(ctx, &to_fixed, val, Some(scale))?;
+                        let unscaled = unscaled_digits(&string)
+                            .parse()
+                            .with_context(|| format!("failed to parse decimal {string:?}"))?;
+                        builder.append_value(unscaled);
                     }
                 }
-                Ok(Arc::new(builder.finish()))
+                let array = builder.finish();
+                array.validate_decimal_precision(*precision)?;
+                Ok(Arc::new(array))
             }
             DataType::Decimal256(precision, scale) => {
                 let mut builder = Decimal256Builder::with_capacity(values.len())
                     .with_precision_and_scale(*precision, *scale)?;
 
-                let bigdecimal_to_precision = self.get_bigdecimal_to_precision_function(ctx)?;
+                let scale = check_scale(*scale)?;
+                let to_fixed = self.get_bigdecimal_to_fixed_function(ctx)?;
 
                 for val in values {
                     if val.is_null() || val.is_undefined() {
                         builder.append_null();
                     } else {
-                        let mut args = Args::new(ctx.clone(), 0);
-                        args.this(val)?;
-                        args.push_arg(*precision)?;
-                        let string: String = bigdecimal_to_precision.call_arg(args).context(
-                            "failed to convert BigDecimal to string. make sure you return a BigDecimal value",
-                        )?;
-                        let decimal_integer = self.decimal_string_to_i256(&string, *scale)?;
-                        builder.append_value(decimal_integer);
+                        let string = bigdecimal_to_fixed(ctx, &to_fixed, val, Some(scale))?;
+                        let unscaled = i256::from_string(&unscaled_digits(&string))
+                            .with_context(|| format!("failed to parse decimal {string:?}"))?;
+                        builder.append_value(unscaled);
                     }
                 }
-                Ok(Arc::new(builder.finish()))
+                let array = builder.finish();
+                array.validate_decimal_precision(*precision)?;
+                Ok(Arc::new(array))
             }
             DataType::Timestamp(unit, _tz) => {
                 match unit {
@@ -662,54 +650,47 @@ impl Converter {
         bigdecimal.call((value,))
     }
 
-    fn get_bigdecimal_to_precision_function<'a>(&self, ctx: &Ctx<'a>) -> Result<Function<'a>> {
-        ctx.eval("BigDecimal.prototype.toPrecision")
-            .context("failed to get BigDecimal.prototype.toPrecision")
+    fn get_bigdecimal_to_fixed_function<'a>(&self, ctx: &Ctx<'a>) -> Result<Function<'a>> {
+        ctx.eval("BigDecimal.prototype.toFixed")
+            .context("failed to get BigDecimal.prototype.toFixed")
     }
+}
 
-    fn decimal_string_to_i128(&self, s: &str, scale: i8) -> Result<i128> {
-        if scale < 0 {
-            return Err(anyhow::anyhow!(
-                "currently only supports non-negative scale"
-            ));
-        }
-
-        let (integer, fractional): (i128, i128) = match s.split_once('.') {
-            Some((i, f)) => (
-                i.parse().context("failed to parse integer part")?,
-                (f[..scale as usize])
-                    .to_string()
-                    .parse()
-                    .context("failed to parse fractional part")?,
-            ),
-            None => (s.parse().context("failed to parse integer part")?, 0),
-        };
-
-        Ok((integer * 10_i128.pow(scale as u32)) + fractional)
+/// `toFixed` counts fraction digits, so it cannot express a negative scale.
+fn check_scale(scale: i8) -> Result<i8> {
+    if scale < 0 {
+        return Err(anyhow::anyhow!(
+            "currently only supports non-negative scale"
+        ));
     }
+    Ok(scale)
+}
 
-    fn decimal_string_to_i256(&self, s: &str, scale: i8) -> Result<i256> {
-        if scale < 0 {
-            return Err(anyhow::anyhow!(
-                "currently only supports non-negative scale"
-            ));
-        }
+/// Convert `value` to a decimal string in plain notation via `BigDecimal.prototype.toFixed`.
+///
+/// If `scale` is given, the value is rounded half-up to exactly that many fraction digits.
+/// Otherwise all fraction digits are kept.
+fn bigdecimal_to_fixed<'a>(
+    ctx: &Ctx<'a>,
+    to_fixed: &Function<'a>,
+    value: Value<'a>,
+    scale: Option<i8>,
+) -> Result<String> {
+    let mut args = Args::new(ctx.clone(), usize::from(scale.is_some()));
+    args.this(value)?;
+    if let Some(scale) = scale {
+        args.push_arg(scale)?;
+    }
+    to_fixed
+        .call_arg(args)
+        .context("failed to convert BigDecimal to string. make sure you return a BigDecimal value")
+}
 
-        // TODO: apply pattern from i128 here
-        let (integer, fractional) = match s.split_once('.') {
-            Some((i, f)) => (
-                i256::from_string(i)
-                    .ok_or_else(|| anyhow::anyhow!("failed to parse integer part"))?,
-                i256::from_string(&f[..scale as usize])
-                    .ok_or_else(|| anyhow::anyhow!("failed to parse fractional part"))?,
-            ),
-            None => (
-                i256::from_string(s)
-                    .ok_or_else(|| anyhow::anyhow!("failed to parse integer part"))?,
-                i256::ZERO,
-            ),
-        };
-
-        Ok((integer * i256::from_i128(10).pow_checked(scale as u32)?) + fractional)
+/// Strip the decimal point from a decimal string in plain notation, turning it into the
+/// unscaled integer of the decimal. e.g. `"-0.05"` -> `"-005"`.
+fn unscaled_digits(s: &str) -> Cow<'_, str> {
+    match s.split_once('.') {
+        Some((integer, fraction)) => Cow::Owned(format!("{integer}{fraction}")),
+        None => Cow::Borrowed(s),
     }
 }

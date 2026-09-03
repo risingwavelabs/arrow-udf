@@ -25,11 +25,10 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use arrow_array::{Array, ArrayRef, BooleanArray, RecordBatch, builder::Int32Builder};
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaRef};
 use futures_util::{FutureExt, Stream};
-use rquickjs::context::intrinsic::{All, Base};
 pub use rquickjs::runtime::MemoryUsage;
 use rquickjs::{
     Array as JsArray, AsyncContext, AsyncRuntime, Ctx, FromJs, IteratorJs as _, Module, Object,
-    Persistent, Promise, Value, async_with, function::Args, module::Evaluated,
+    Persistent, Promise, Value, function::Args, module::Evaluated,
 };
 
 use crate::CallMode;
@@ -38,6 +37,11 @@ use crate::into_field::IntoField;
 #[cfg(feature = "javascript-fetch")]
 mod fetch;
 mod jsarrow;
+
+/// The bundled [big.js](https://github.com/MikeMcl/big.js) library and the shim that exposes it
+/// as the global `BigDecimal`. See `bigdecimal/LICENCE.md` for its license.
+const BIG_JS: &str = include_str!("bigdecimal/big.js");
+const BIGDECIMAL_JS: &str = include_str!("bigdecimal/bigdecimal.js");
 
 /// A runtime to execute user defined functions in JavaScript.
 ///
@@ -105,9 +109,9 @@ struct Aggregate {
     options: AggregateOptions,
 }
 
-// This is required to pass `Function` and `Aggregate` from `async_with!` to outside.
+// This is required to pass `Function` and `Aggregate` from `AsyncContext::async_with` to outside.
 // Otherwise, the compiler will complain that `*mut JSRuntime` cannot be sent between threads safely
-// SAFETY: We ensure the `JSRuntime` used in `async_with!` is same as the caller's.
+// SAFETY: We ensure the `JSRuntime` used in `async_with` is same as the caller's.
 // The `parallel` feature of `rquickjs` is enabled, so itself can't ensure this.
 unsafe impl Send for Function {}
 unsafe impl Sync for Function {}
@@ -200,9 +204,20 @@ impl Runtime {
     /// ```
     pub async fn new() -> Result<Self> {
         let runtime = AsyncRuntime::new().context("failed to create quickjs runtime")?;
-        let context = AsyncContext::custom::<(Base, All)>(&runtime)
+        let context = AsyncContext::full(&runtime)
             .await
             .context("failed to create quickjs context")?;
+
+        // Define `BigDecimal` before any user code runs, as the engine has no decimal type.
+        context
+            .with(|ctx| {
+                ctx.eval::<(), _>(BIG_JS)
+                    .map_err(|e| check_exception(e, &ctx))?;
+                ctx.eval::<(), _>(BIGDECIMAL_JS)
+                    .map_err(|e| check_exception(e, &ctx))
+            })
+            .await
+            .context("failed to define BigDecimal")?;
 
         Ok(Self {
             functions: HashMap::new(),
@@ -332,21 +347,24 @@ impl Runtime {
         code: &str,
         options: FunctionOptions,
     ) -> Result<()> {
-        let function = async_with!(self.context => |ctx| {
-            let (module, _) = Module::declare(ctx.clone(), name, code)
-                .map_err(|e| check_exception(e, &ctx))
-                .context("failed to declare module")?
-                .eval()
-                .map_err(|e| check_exception(e, &ctx))
-                .context("failed to evaluate module")?;
-            let function = Self::get_function(&ctx, &module, options.handler.as_deref().unwrap_or(name))?;
-            Ok(Function {
-                function,
-                return_field: return_type.into_field(name).into(),
-                options,
-            }) as Result<Function>
-        })
-        .await?;
+        let function = self
+            .context
+            .async_with(async |ctx| {
+                let (module, _) = Module::declare(ctx.clone(), name, code)
+                    .map_err(|e| check_exception(e, &ctx))
+                    .context("failed to declare module")?
+                    .eval()
+                    .map_err(|e| check_exception(e, &ctx))
+                    .context("failed to evaluate module")?;
+                let function =
+                    Self::get_function(&ctx, &module, options.handler.as_deref().unwrap_or(name))?;
+                Ok(Function {
+                    function,
+                    return_field: return_type.into_field(name).into(),
+                    options,
+                }) as Result<Function>
+            })
+            .await?;
         self.functions.insert(name.to_string(), function);
         Ok(())
     }
@@ -428,25 +446,27 @@ impl Runtime {
         code: &str,
         options: AggregateOptions,
     ) -> Result<()> {
-        let aggregate = async_with!(self.context => |ctx| {
-            let (module, _) = Module::declare(ctx.clone(), name, code)
-                .map_err(|e| check_exception(e, &ctx))
-                .context("failed to declare module")?
-                .eval()
-                .map_err(|e| check_exception(e, &ctx))
-                .context("failed to evaluate module")?;
-            Ok(Aggregate {
-                state_field: state_type.into_field(name).into(),
-                output_field: output_type.into_field(name).into(),
-                create_state: Self::get_function(&ctx, &module, "create_state")?,
-                accumulate: Self::get_function(&ctx, &module, "accumulate")?,
-                retract: Self::get_function(&ctx, &module, "retract").ok(),
-                finish: Self::get_function(&ctx, &module, "finish").ok(),
-                merge: Self::get_function(&ctx, &module, "merge").ok(),
-                options,
-            }) as Result<Aggregate>
-        })
-        .await?;
+        let aggregate = self
+            .context
+            .async_with(async |ctx| {
+                let (module, _) = Module::declare(ctx.clone(), name, code)
+                    .map_err(|e| check_exception(e, &ctx))
+                    .context("failed to declare module")?
+                    .eval()
+                    .map_err(|e| check_exception(e, &ctx))
+                    .context("failed to evaluate module")?;
+                Ok(Aggregate {
+                    state_field: state_type.into_field(name).into(),
+                    output_field: output_type.into_field(name).into(),
+                    create_state: Self::get_function(&ctx, &module, "create_state")?,
+                    accumulate: Self::get_function(&ctx, &module, "accumulate")?,
+                    retract: Self::get_function(&ctx, &module, "retract").ok(),
+                    finish: Self::get_function(&ctx, &module, "finish").ok(),
+                    merge: Self::get_function(&ctx, &module, "merge").ok(),
+                    options,
+                }) as Result<Aggregate>
+            })
+            .await?;
 
         if aggregate.finish.is_none() && aggregate.state_field != aggregate.output_field {
             bail!("`output_type` must be the same as `state_type` when `finish` is not defined");
@@ -480,14 +500,15 @@ impl Runtime {
     pub async fn call(&self, name: &str, input: &RecordBatch) -> Result<RecordBatch> {
         let function = self.functions.get(name).context("function not found")?;
 
-        async_with!(self.context => |ctx| {
-            if function.options.is_batched {
-                self.call_batched_function(&ctx, function, input).await
-            } else {
-                self.call_non_batched_function(&ctx, function, input).await
-            }
-        })
-        .await
+        self.context
+            .async_with(async |ctx| {
+                if function.options.is_batched {
+                    self.call_batched_function(&ctx, function, input).await
+                } else {
+                    self.call_non_batched_function(&ctx, function, input).await
+                }
+            })
+            .await
     }
 
     async fn call_non_batched_function(
@@ -692,18 +713,25 @@ impl Runtime {
     /// ```
     pub async fn create_state(&self, name: &str) -> Result<ArrayRef> {
         let aggregate = self.aggregates.get(name).context("function not found")?;
-        let state = async_with!(self.context => |ctx| {
-            let create_state = aggregate.create_state.clone().restore(&ctx)?;
-            let state = self
-                .call_user_fn(&ctx, &create_state, Args::new(ctx.clone(), 0), aggregate.options.is_async)
-                .await
-                .context("failed to call create_state")?;
-            let state = self
-                .converter
-                .build_array(&aggregate.state_field, &ctx, vec![state])?;
-            Ok(state) as Result<_>
-        })
-        .await?;
+        let state = self
+            .context
+            .async_with(async |ctx| {
+                let create_state = aggregate.create_state.clone().restore(&ctx)?;
+                let state = self
+                    .call_user_fn(
+                        &ctx,
+                        &create_state,
+                        Args::new(ctx.clone(), 0),
+                        aggregate.options.is_async,
+                    )
+                    .await
+                    .context("failed to call create_state")?;
+                let state =
+                    self.converter
+                        .build_array(&aggregate.state_field, &ctx, vec![state])?;
+                Ok(state) as Result<_>
+            })
+            .await?;
         Ok(state)
     }
 
@@ -731,38 +759,40 @@ impl Runtime {
     ) -> Result<ArrayRef> {
         let aggregate = self.aggregates.get(name).context("function not found")?;
         // convert each row to python objects and call the accumulate function
-        let new_state = async_with!(self.context => |ctx| {
-            let accumulate = aggregate.accumulate.clone().restore(&ctx)?;
-            let mut state = self
-                .converter
-                .get_jsvalue(&ctx, &aggregate.state_field, state, 0)?;
+        let new_state = self
+            .context
+            .async_with(async |ctx| {
+                let accumulate = aggregate.accumulate.clone().restore(&ctx)?;
+                let mut state =
+                    self.converter
+                        .get_jsvalue(&ctx, &aggregate.state_field, state, 0)?;
 
-            let mut row = Vec::with_capacity(1 + input.num_columns());
-            for i in 0..input.num_rows() {
-                if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput
-                    && input.columns().iter().any(|column| column.is_null(i))
-                {
-                    continue;
+                let mut row = Vec::with_capacity(1 + input.num_columns());
+                for i in 0..input.num_rows() {
+                    if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput
+                        && input.columns().iter().any(|column| column.is_null(i))
+                    {
+                        continue;
+                    }
+                    row.clear();
+                    row.push(state.clone());
+                    for (column, field) in input.columns().iter().zip(input.schema().fields()) {
+                        let pyobj = self.converter.get_jsvalue(&ctx, field, column, i)?;
+                        row.push(pyobj);
+                    }
+                    let mut args = Args::new(ctx.clone(), row.len());
+                    args.push_args(row.drain(..))?;
+                    state = self
+                        .call_user_fn(&ctx, &accumulate, args, aggregate.options.is_async)
+                        .await
+                        .context("failed to call accumulate")?;
                 }
-                row.clear();
-                row.push(state.clone());
-                for (column, field) in input.columns().iter().zip(input.schema().fields()) {
-                    let pyobj = self.converter.get_jsvalue(&ctx, field, column, i)?;
-                    row.push(pyobj);
-                }
-                let mut args = Args::new(ctx.clone(), row.len());
-                args.push_args(row.drain(..))?;
-                state = self
-                    .call_user_fn(&ctx, &accumulate, args, aggregate.options.is_async)
-                    .await
-                    .context("failed to call accumulate")?;
-            }
-            let output = self
-                .converter
-                .build_array(&aggregate.state_field, &ctx, vec![state])?;
-            Ok(output) as Result<_>
-        })
-        .await?;
+                let output =
+                    self.converter
+                        .build_array(&aggregate.state_field, &ctx, vec![state])?;
+                Ok(output) as Result<_>
+            })
+            .await?;
         Ok(new_state)
     }
 
@@ -795,49 +825,51 @@ impl Runtime {
     ) -> Result<ArrayRef> {
         let aggregate = self.aggregates.get(name).context("function not found")?;
         // convert each row to python objects and call the accumulate function
-        let new_state = async_with!(self.context => |ctx| {
-        let accumulate = aggregate.accumulate.clone().restore(&ctx)?;
-        let retract = aggregate
-            .retract
-            .clone()
-            .context("function does not support retraction")?
-            .restore(&ctx)?;
+        let new_state = self
+            .context
+            .async_with(async |ctx| {
+                let accumulate = aggregate.accumulate.clone().restore(&ctx)?;
+                let retract = aggregate
+                    .retract
+                    .clone()
+                    .context("function does not support retraction")?
+                    .restore(&ctx)?;
 
-        let mut state = self
-            .converter
-            .get_jsvalue(&ctx, &aggregate.state_field, state, 0)?;
+                let mut state =
+                    self.converter
+                        .get_jsvalue(&ctx, &aggregate.state_field, state, 0)?;
 
-        let mut row = Vec::with_capacity(1 + input.num_columns());
-        for i in 0..input.num_rows() {
-            if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput
-                && input.columns().iter().any(|column| column.is_null(i))
-            {
-                continue;
-            }
-            row.clear();
-            row.push(state.clone());
-            for (column, field) in input.columns().iter().zip(input.schema().fields()) {
-                let pyobj = self.converter.get_jsvalue(&ctx, field, column, i)?;
-                row.push(pyobj);
-            }
-            let func = if ops.is_valid(i) && ops.value(i) {
-                &retract
-            } else {
-                &accumulate
-            };
-            let mut args = Args::new(ctx.clone(), row.len());
-            args.push_args(row.drain(..))?;
-            state = self
-                .call_user_fn(&ctx, func, args, aggregate.options.is_async)
-                .await
-                .context("failed to call accumulate or retract")?;
-        }
-        let output = self
-            .converter
-            .build_array(&aggregate.state_field, &ctx, vec![state])?;
-        Ok(output) as Result<_>
+                let mut row = Vec::with_capacity(1 + input.num_columns());
+                for i in 0..input.num_rows() {
+                    if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput
+                        && input.columns().iter().any(|column| column.is_null(i))
+                    {
+                        continue;
+                    }
+                    row.clear();
+                    row.push(state.clone());
+                    for (column, field) in input.columns().iter().zip(input.schema().fields()) {
+                        let pyobj = self.converter.get_jsvalue(&ctx, field, column, i)?;
+                        row.push(pyobj);
+                    }
+                    let func = if ops.is_valid(i) && ops.value(i) {
+                        &retract
+                    } else {
+                        &accumulate
+                    };
+                    let mut args = Args::new(ctx.clone(), row.len());
+                    args.push_args(row.drain(..))?;
+                    state = self
+                        .call_user_fn(&ctx, func, args, aggregate.options.is_async)
+                        .await
+                        .context("failed to call accumulate or retract")?;
+                }
+                let output =
+                    self.converter
+                        .build_array(&aggregate.state_field, &ctx, vec![state])?;
+                Ok(output) as Result<_>
             })
-        .await?;
+            .await?;
         Ok(new_state)
     }
 
@@ -855,35 +887,39 @@ impl Runtime {
     /// ```
     pub async fn merge(&self, name: &str, states: &dyn Array) -> Result<ArrayRef> {
         let aggregate = self.aggregates.get(name).context("function not found")?;
-        let output = async_with!(self.context => |ctx| {
-            let merge = aggregate
-                .merge
-                .clone()
-                .context("merge not found")?
-                .restore(&ctx)?;
-            let mut state = self
-                .converter
-                .get_jsvalue(&ctx, &aggregate.state_field, states, 0)?;
-            for i in 1..states.len() {
-                if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput && states.is_null(i) {
-                    continue;
+        let output = self
+            .context
+            .async_with(async |ctx| {
+                let merge = aggregate
+                    .merge
+                    .clone()
+                    .context("merge not found")?
+                    .restore(&ctx)?;
+                let mut state =
+                    self.converter
+                        .get_jsvalue(&ctx, &aggregate.state_field, states, 0)?;
+                for i in 1..states.len() {
+                    if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput
+                        && states.is_null(i)
+                    {
+                        continue;
+                    }
+                    let state2 =
+                        self.converter
+                            .get_jsvalue(&ctx, &aggregate.state_field, states, i)?;
+                    let mut args = Args::new(ctx.clone(), 2);
+                    args.push_args([state, state2])?;
+                    state = self
+                        .call_user_fn(&ctx, &merge, args, aggregate.options.is_async)
+                        .await
+                        .context("failed to call accumulate or retract")?;
                 }
-                let state2 = self
-                    .converter
-                    .get_jsvalue(&ctx, &aggregate.state_field, states, i)?;
-                let mut args = Args::new(ctx.clone(), 2);
-                args.push_args([state, state2])?;
-                state = self
-                    .call_user_fn(&ctx, &merge, args, aggregate.options.is_async)
-                    .await
-                    .context("failed to call accumulate or retract")?;
-            }
-            let output = self
-                .converter
-                .build_array(&aggregate.state_field, &ctx, vec![state])?;
-            Ok(output) as Result<_>
-        })
-        .await?;
+                let output =
+                    self.converter
+                        .build_array(&aggregate.state_field, &ctx, vec![state])?;
+                Ok(output) as Result<_>
+            })
+            .await?;
         Ok(output)
     }
 
@@ -906,31 +942,35 @@ impl Runtime {
         if aggregate.finish.is_none() {
             return Ok(states.clone());
         };
-        let output = async_with!(self.context => |ctx| {
-            let finish = aggregate.finish.clone().unwrap().restore(&ctx)?;
-            let mut results = Vec::with_capacity(states.len());
-            for i in 0..states.len() {
-                if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput && states.is_null(i) {
-                    results.push(Value::new_null(ctx.clone()));
-                    continue;
+        let output = self
+            .context
+            .async_with(async |ctx| {
+                let finish = aggregate.finish.clone().unwrap().restore(&ctx)?;
+                let mut results = Vec::with_capacity(states.len());
+                for i in 0..states.len() {
+                    if aggregate.options.call_mode == CallMode::ReturnNullOnNullInput
+                        && states.is_null(i)
+                    {
+                        results.push(Value::new_null(ctx.clone()));
+                        continue;
+                    }
+                    let state =
+                        self.converter
+                            .get_jsvalue(&ctx, &aggregate.state_field, states, i)?;
+                    let mut args = Args::new(ctx.clone(), 1);
+                    args.push_args([state])?;
+                    let result = self
+                        .call_user_fn(&ctx, &finish, args, aggregate.options.is_async)
+                        .await
+                        .context("failed to call finish")?;
+                    results.push(result);
                 }
-                let state =
-                    self.converter
-                        .get_jsvalue(&ctx, &aggregate.state_field, states, i)?;
-                let mut args = Args::new(ctx.clone(), 1);
-                args.push_args([state])?;
-                let result = self
-                    .call_user_fn(&ctx, &finish, args, aggregate.options.is_async)
-                    .await
-                    .context("failed to call finish")?;
-                results.push(result);
-            }
-            let output = self
-                .converter
-                .build_array(&aggregate.output_field, &ctx, results)?;
-            Ok(output) as Result<_>
-        })
-        .await?;
+                let output = self
+                    .converter
+                    .build_array(&aggregate.output_field, &ctx, results)?;
+                Ok(output) as Result<_>
+            })
+            .await?;
         Ok(output)
     }
 
@@ -1033,89 +1073,98 @@ impl RecordBatchIter<'_> {
         if self.row == self.input.num_rows() {
             return Ok(None);
         }
-        async_with!(self.rt.context => |ctx| {
-            let js_function = self.function.function.clone().restore(&ctx)?;
-            let mut indexes = Int32Builder::with_capacity(self.chunk_size);
-            let mut results = Vec::with_capacity(self.input.num_rows());
-            let mut row = Vec::with_capacity(self.input.num_columns());
-            // restore generator from state
-            let mut generator = match self.generator.take() {
-                Some(generator) => {
-                    let generator_obj = generator.restore(&ctx)?;
-                    let next: rquickjs::Function =
-                        generator_obj.get("next").context("failed to get 'next' method")?;
-                    Some((generator_obj, next))
-                }
-                None => None,
-            };
-            while self.row < self.input.num_rows() && results.len() < self.chunk_size {
-                let (generator_obj, next) = if let Some(g) = generator.as_ref() {
-                    g
-                } else {
-                    // call the table function to get a generator
-                    row.clear();
-                    for (column, field) in
-                        (self.input.columns().iter()).zip(self.input.schema().fields())
-                    {
-                        let val = self
-                            .converter
-                            .get_jsvalue(&ctx, field, column, self.row)
-                            .context("failed to get jsvalue from arrow array")?;
-                        row.push(val);
+        // `move` makes the closure capture the whole `self`, which is `Send`, instead of
+        // capturing the non-`Send` `generator` field on its own.
+        self.rt
+            .context
+            .async_with(async move |ctx| {
+                let js_function = self.function.function.clone().restore(&ctx)?;
+                let mut indexes = Int32Builder::with_capacity(self.chunk_size);
+                let mut results = Vec::with_capacity(self.input.num_rows());
+                let mut row = Vec::with_capacity(self.input.num_columns());
+                // restore generator from state
+                let mut generator = match self.generator.take() {
+                    Some(generator) => {
+                        let generator_obj = generator.restore(&ctx)?;
+                        let next: rquickjs::Function = generator_obj
+                            .get("next")
+                            .context("failed to get 'next' method")?;
+                        Some((generator_obj, next))
                     }
-                    if self.function.options.call_mode == CallMode::ReturnNullOnNullInput
-                        && row.iter().any(|v| v.is_null())
-                    {
-                        self.row += 1;
-                        continue;
-                    }
-                    let mut args = Args::new(ctx.clone(), row.len());
-                    args.push_args(row.drain(..))?;
-                    // NOTE: A async generator function, defined by `async function*`, itself is NOT async.
-                    // That's why we call it with `is_async = false` here.
-                    // The result is a `AsyncGenerator`, which has a async `next` method.
-                    let generator_obj: Object = self
-                        .rt
-                        .call_user_fn(&ctx, &js_function, args, false).await
-                        .context("failed to call function")?;
-                    let next: rquickjs::Function =
-                        generator_obj.get("next").context("failed to get 'next' method")?;
+                    None => None,
+                };
+                while self.row < self.input.num_rows() && results.len() < self.chunk_size {
+                    let (generator_obj, next) = if let Some(g) = generator.as_ref() {
+                        g
+                    } else {
+                        // call the table function to get a generator
+                        row.clear();
+                        for (column, field) in
+                            (self.input.columns().iter()).zip(self.input.schema().fields())
+                        {
+                            let val = self
+                                .converter
+                                .get_jsvalue(&ctx, field, column, self.row)
+                                .context("failed to get jsvalue from arrow array")?;
+                            row.push(val);
+                        }
+                        if self.function.options.call_mode == CallMode::ReturnNullOnNullInput
+                            && row.iter().any(|v| v.is_null())
+                        {
+                            self.row += 1;
+                            continue;
+                        }
+                        let mut args = Args::new(ctx.clone(), row.len());
+                        args.push_args(row.drain(..))?;
+                        // NOTE: A async generator function, defined by `async function*`, itself is NOT async.
+                        // That's why we call it with `is_async = false` here.
+                        // The result is a `AsyncGenerator`, which has a async `next` method.
+                        let generator_obj: Object = self
+                            .rt
+                            .call_user_fn(&ctx, &js_function, args, false)
+                            .await
+                            .context("failed to call function")?;
+                        let next: rquickjs::Function = generator_obj
+                            .get("next")
+                            .context("failed to get 'next' method")?;
+                        let mut args = Args::new(ctx.clone(), 0);
+                        args.this(generator_obj.clone())?;
+                        generator.insert((generator_obj, next))
+                    };
                     let mut args = Args::new(ctx.clone(), 0);
                     args.this(generator_obj.clone())?;
-                    generator.insert((generator_obj, next))
-                };
-                let mut args = Args::new(ctx.clone(), 0);
-                args.this(generator_obj.clone())?;
-                let object: Object = self
-                    .rt
-                    .call_user_fn(&ctx, next, args, self.function.options.is_async).await
-                    .context("failed to call next")?;
-                let value: Value = object.get("value")?;
-                let done: bool = object.get("done")?;
-                if done {
-                    self.row += 1;
-                    generator = None;
-                    continue;
+                    let object: Object = self
+                        .rt
+                        .call_user_fn(&ctx, next, args, self.function.options.is_async)
+                        .await
+                        .context("failed to call next")?;
+                    let value: Value = object.get("value")?;
+                    let done: bool = object.get("done")?;
+                    if done {
+                        self.row += 1;
+                        generator = None;
+                        continue;
+                    }
+                    indexes.append_value(self.row as i32);
+                    results.push(value);
                 }
-                indexes.append_value(self.row as i32);
-                results.push(value);
-            }
-            self.generator = generator.map(|(generator_obj, _)| Persistent::save(&ctx, generator_obj));
+                self.generator =
+                    generator.map(|(generator_obj, _)| Persistent::save(&ctx, generator_obj));
 
-            if results.is_empty() {
-                return Ok(None);
-            }
-            let indexes = Arc::new(indexes.finish());
-            let array = self
-                .converter
-                .build_array(&self.function.return_field, &ctx, results)
-                .context("failed to build arrow array from return values")?;
-            Ok(Some(RecordBatch::try_new(
-                self.schema.clone(),
-                vec![indexes, array],
-            )?))
-        })
-        .await
+                if results.is_empty() {
+                    return Ok(None);
+                }
+                let indexes = Arc::new(indexes.finish());
+                let array = self
+                    .converter
+                    .build_array(&self.function.return_field, &ctx, results)
+                    .context("failed to build arrow array from return values")?;
+                Ok(Some(RecordBatch::try_new(
+                    self.schema.clone(),
+                    vec![indexes, array],
+                )?))
+            })
+            .await
     }
 }
 

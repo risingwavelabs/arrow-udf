@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- JavaScript UDF: decimal values are now [big.js](https://github.com/MikeMcl/big.js) objects instead of the QuickJS `BigDecimal`. Operators no longer work on them, use methods like `add`/`sub`/`mul`/`div`/`cmp` instead.
+- JavaScript UDF: `Decimal128`/`Decimal256` results are rounded half-up to the column scale instead of truncated, and rejected if they exceed the column precision.
+
+### Changed
+
+- Update `rquickjs` version from `0.6` to `0.12`. The JavaScript engine is now quickjs-ng.
+
 ## [0.9.0] - 2026-04-22
 
 ### Changed

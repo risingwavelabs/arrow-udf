@@ -22,19 +22,20 @@ use arrow_schema::{DataType, Field, Schema};
 use arrow_udf_runtime::javascript::{AggregateOptions, FunctionOptions, Runtime};
 use expect_test::{Expect, expect};
 use mockito::Server;
-use rquickjs::{AsyncContext, async_with};
+use rquickjs::AsyncContext;
 
 async fn run_async_js_code(context: &AsyncContext, js_code: &str) {
-    async_with!(context => |ctx| {
-        ctx.eval_promise::<_>(js_code)
-        .inspect_err(|e| inspect_error(e, &ctx))
-        .unwrap()
-        .into_future::<()>()
-        .await
-        .inspect_err(|e| inspect_error(e, &ctx))
-        .unwrap();
-    })
-    .await;
+    context
+        .async_with(async |ctx| {
+            ctx.eval_promise::<_>(js_code)
+                .inspect_err(|e| inspect_error(e, &ctx))
+                .unwrap()
+                .into_future::<()>()
+                .await
+                .inspect_err(|e| inspect_error(e, &ctx))
+                .unwrap();
+        })
+        .await;
 }
 
 #[tokio::test]

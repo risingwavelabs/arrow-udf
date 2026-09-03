@@ -18,9 +18,7 @@ use anyhow::anyhow;
 use response::Response;
 use rquickjs::loader::Bundle;
 use rquickjs::prelude::*;
-use rquickjs::{
-    AsyncContext, AsyncRuntime, Class, Ctx, Exception, Module, Result, async_with, embed,
-};
+use rquickjs::{AsyncContext, AsyncRuntime, Class, Ctx, Exception, Module, Result, embed};
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -100,7 +98,7 @@ impl<'js> rquickjs::IntoJs<'js> for SendHttpRequest {
 /// Enable fetch API in the given `AsyncContext`.
 pub async fn enable_fetch(rt: &AsyncRuntime, ctx: &AsyncContext) -> anyhow::Result<()> {
     rt.set_loader(BUNDLE, BUNDLE).await;
-    async_with!(ctx => |ctx| {
+    ctx.async_with(async |ctx| {
         ctx.globals()
             .set("sendHttpRequest", SendHttpRequest)
             .map_err(|e| check_exception(e, &ctx))?;
@@ -112,7 +110,8 @@ pub async fn enable_fetch(rt: &AsyncRuntime, ctx: &AsyncContext) -> anyhow::Resu
             globalThis.fetch = fetch;
             globalThis.Headers = Headers;
             globalThis.Request = Request;",
-        ).map_err(|e| check_exception(e, &ctx))?;
+        )
+        .map_err(|e| check_exception(e, &ctx))?;
         Ok(())
     })
     .await

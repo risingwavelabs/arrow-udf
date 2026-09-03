@@ -29,8 +29,8 @@ use arrow_cast::pretty::{pretty_format_batches, pretty_format_columns};
 use arrow_schema::{DataType, Field, Fields, Schema};
 use arrow_udf_runtime::javascript::{AggregateOptions, FunctionOptions, Runtime};
 use expect_test::{Expect, expect};
+use rquickjs::Function;
 use rquickjs::prelude::Async;
-use rquickjs::{Function, async_with};
 
 #[tokio::test]
 async fn test_gcd() {
@@ -339,7 +339,7 @@ async fn test_decimal128() {
             DataType::Decimal128(19, 2),
             r#"
             export function decimal128_add(a, b) {
-                return a + b + BigDecimal('0.000001');
+                return a.add(b).add(BigDecimal('0.000001'));
             }
             "#,
             FunctionOptions::default().return_null_on_null_input(),
@@ -383,7 +383,7 @@ async fn test_decimal256() {
             DataType::Decimal256(19, 2),
             r#"
             export function decimal256_add(a, b) {
-                return a + b + BigDecimal('0.000001');
+                return a.add(b).add(BigDecimal('0.000001'));
             }
             "#,
             FunctionOptions::default().return_null_on_null_input(),
@@ -427,7 +427,7 @@ async fn test_decimal_add() {
             decimal_field("add"),
             r#"
             export function decimal_add(a, b) {
-                return a + b;
+                return a.add(b);
             }
             "#,
             FunctionOptions::default().return_null_on_null_input(),
@@ -451,6 +451,211 @@ async fn test_decimal_add() {
             +--------+
             | 0.0003 |
             +--------+"#]],
+    );
+}
+
+#[tokio::test]
+async fn test_decimal_operator() {
+    let mut runtime = Runtime::new().await.unwrap();
+
+    runtime
+        .add_function(
+            "decimal_plus",
+            decimal_field("plus"),
+            r#"
+            export function decimal_plus(a, b) {
+                return a + b;
+            }
+            "#,
+            FunctionOptions::default().return_null_on_null_input(),
+        )
+        .await
+        .unwrap();
+
+    let schema = Schema::new(vec![decimal_field("a"), decimal_field("b")]);
+    let arg0 = StringArray::from(vec!["0.0001"]);
+    let arg1 = StringArray::from(vec!["0.0002"]);
+    let input =
+        RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arg0), Arc::new(arg1)]).unwrap();
+
+    let error = runtime.call("decimal_plus", &input).await.unwrap_err();
+    assert!(
+        format!("{error:#}").contains(
+            "BigDecimal does not support arithmetic operators, \
+             use methods like add()/sub()/mul()/div()/cmp() instead"
+        ),
+        "{error:#}"
+    );
+}
+
+#[tokio::test]
+async fn test_decimal_negative_fraction() {
+    let mut runtime = Runtime::new().await.unwrap();
+
+    let js_code = r#"
+        export function identity(a) {
+            return a;
+        }
+    "#;
+    let options = || {
+        FunctionOptions::default()
+            .return_null_on_null_input()
+            .handler("identity")
+    };
+    runtime
+        .add_function(
+            "decimal128_identity",
+            DataType::Decimal128(19, 2),
+            js_code,
+            options(),
+        )
+        .await
+        .unwrap();
+    runtime
+        .add_function(
+            "decimal_identity",
+            decimal_field("decimal_identity"),
+            js_code,
+            options(),
+        )
+        .await
+        .unwrap();
+
+    let schema = Schema::new(vec![Field::new("a", DataType::Decimal128(19, 2), true)]);
+    let arg0 = Decimal128Array::from(vec![Some(-5)])
+        .with_precision_and_scale(19, 2)
+        .unwrap();
+    let input = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arg0)]).unwrap();
+
+    let output = runtime.call("decimal128_identity", &input).await.unwrap();
+    check(
+        &[output],
+        expect![[r#"
+            +---------------------+
+            | decimal128_identity |
+            +---------------------+
+            | -0.05               |
+            +---------------------+"#]],
+    );
+
+    let schema = Schema::new(vec![decimal_field("a")]);
+    let arg0 = StringArray::from(vec!["-0.05"]);
+    let input = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arg0)]).unwrap();
+
+    let output = runtime.call("decimal_identity", &input).await.unwrap();
+    check(
+        &[output],
+        expect![[r#"
+            +------------------+
+            | decimal_identity |
+            +------------------+
+            | -0.05            |
+            +------------------+"#]],
+    );
+}
+
+/// A decimal that does not fit the output scale is rounded half-up, not truncated.
+#[tokio::test]
+async fn test_decimal_round_to_scale() {
+    let mut runtime = Runtime::new().await.unwrap();
+
+    runtime
+        .add_function(
+            "decimal128_round",
+            DataType::Decimal128(19, 2),
+            r#"
+            export function decimal128_round(a) {
+                return a;
+            }
+            "#,
+            FunctionOptions::default().return_null_on_null_input(),
+        )
+        .await
+        .unwrap();
+
+    let schema = Schema::new(vec![decimal_field("a")]);
+    let arg0 = StringArray::from(vec!["2.345", "-2.345", "2.344"]);
+    let input = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arg0)]).unwrap();
+
+    let output = runtime.call("decimal128_round", &input).await.unwrap();
+    check(
+        &[output],
+        expect![[r#"
+            +------------------+
+            | decimal128_round |
+            +------------------+
+            | 2.35             |
+            | -2.35            |
+            | 2.34             |
+            +------------------+"#]],
+    );
+}
+
+/// A decimal that does not fit the output precision is rejected rather than stored truncated.
+#[tokio::test]
+async fn test_decimal_precision_overflow() {
+    let mut runtime = Runtime::new().await.unwrap();
+
+    runtime
+        .add_function(
+            "decimal128_identity",
+            DataType::Decimal128(5, 2),
+            r#"
+            export function decimal128_identity(a) {
+                return a;
+            }
+            "#,
+            FunctionOptions::default().return_null_on_null_input(),
+        )
+        .await
+        .unwrap();
+
+    let schema = Schema::new(vec![decimal_field("a")]);
+    let arg0 = StringArray::from(vec!["1234.56"]);
+    let input = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arg0)]).unwrap();
+
+    let error = runtime
+        .call("decimal128_identity", &input)
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("too large to store in a Decimal128 of precision 5"),
+        "{error:#}"
+    );
+}
+
+/// `toString` never switches to exponent notation.
+#[tokio::test]
+async fn test_decimal_to_string() {
+    let mut runtime = Runtime::new().await.unwrap();
+
+    runtime
+        .add_function(
+            "decimal_to_string",
+            DataType::Utf8,
+            r#"
+            export function decimal_to_string(a) {
+                return a.mul(BigDecimal('1e30')).toString();
+            }
+            "#,
+            FunctionOptions::default().return_null_on_null_input(),
+        )
+        .await
+        .unwrap();
+
+    let schema = Schema::new(vec![decimal_field("a")]);
+    let arg0 = StringArray::from(vec!["1.5"]);
+    let input = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arg0)]).unwrap();
+
+    let output = runtime.call("decimal_to_string", &input).await.unwrap();
+    check(
+        &[output],
+        expect![[r#"
+            +---------------------------------+
+            | decimal_to_string               |
+            +---------------------------------+
+            | 1500000000000000000000000000000 |
+            +---------------------------------+"#]],
     );
 }
 
@@ -1541,18 +1746,21 @@ async fn delay_strlen(msg: String) -> usize {
 async fn test_async_rust_fn() {
     let mut runtime = Runtime::new().await.unwrap();
 
-    async_with!(runtime.context() => |ctx| {
-        let global = ctx.globals();
-        global.set(
-            "native_delay_strlen",
-            Function::new(ctx.clone(), Async(delay_strlen))
-                .unwrap()
-                .with_name("native_delay_strlen")
-                .unwrap(),
-        )
-        .unwrap();
-    })
-    .await;
+    runtime
+        .context()
+        .async_with(async |ctx| {
+            let global = ctx.globals();
+            global
+                .set(
+                    "native_delay_strlen",
+                    Function::new(ctx.clone(), Async(delay_strlen))
+                        .unwrap()
+                        .with_name("native_delay_strlen")
+                        .unwrap(),
+                )
+                .unwrap();
+        })
+        .await;
 
     runtime
         .add_function(

@@ -126,8 +126,8 @@ The following table shows the type mapping between Arrow and JavaScript:
 | LargeString           | string         |
 | Date32                | Date           |
 | Timestamp             | Date           |
-| Decimal128            | BigDecimal     |
-| Decimal256            | BigDecimal     |
+| Decimal128            | BigDecimal (object) |
+| Decimal256            | BigDecimal (object) |
 | Binary                | Uint8Array     |
 | LargeBinary           | Uint8Array     |
 | List(Int8)            | Int8Array      |
@@ -148,7 +148,22 @@ This crate also supports the following [Arrow extension types](https://arrow.apa
 | Extension Type | Physical Type               | `ARROW:extension:name` | JS Type       |
 | -------------- | --------------------------- | ---------------------- | ------------- |
 | JSON           | String, Binary, LargeBinary | `arrowudf.json`        | any (parsed by `JSON.parse(string)`) |
-| Decimal        | String                      | `arrowudf.decimal`     | BigDecimal    |
+| Decimal        | String                      | `arrowudf.decimal`     | BigDecimal (object) |
+
+### Decimal
+
+Decimal values are exposed as `BigDecimal` objects, backed by the bundled
+[big.js](https://github.com/MikeMcl/big.js) library. Construct one with `BigDecimal("1.5")` and
+do arithmetic with methods (`add`, `sub`, `mul`, `div`, `cmp`, `round`, `toFixed`, ... see the
+big.js API), not with operators: `a + b` or `a < b` throws a `TypeError`, and `==` compares
+object identity, so compare values with `eq` or `cmp`. `typeof` a decimal is
+`"object"`; `toString()` and template literals work as usual and never use exponent notation.
+
+```js
+export function decimal_add(a, b) {
+    return a.add(b).mul(BigDecimal("2"));
+}
+```
 
 ## Async Functions and Fetch API
 

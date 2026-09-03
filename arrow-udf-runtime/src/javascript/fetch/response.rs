@@ -19,7 +19,7 @@ use rquickjs::prelude::*;
 /// The Response interface of the Fetch API represents the response to a request.
 ///
 /// See also https://developer.mozilla.org/en-US/docs/Web/API/Response
-#[derive(rquickjs::class::Trace, Default, Debug)]
+#[derive(rquickjs::class::Trace, rquickjs::JsLifetime, Default, Debug)]
 #[rquickjs::class(rename_all = "camelCase")]
 pub struct Response {
     /// The status code of the response. (This will be 200 for a success).
