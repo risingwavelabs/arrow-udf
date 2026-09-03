@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788419604474,
+  "lastUpdate": 1788426267230,
   "repoUrl": "https://github.com/arrow-udf/arrow-udf",
   "entries": {
     "Rust Benchmark": [
@@ -17831,6 +17831,108 @@ window.BENCHMARK_DATA = {
             "name": "sum/python",
             "value": 141582,
             "range": "± 1502",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "31772373+yuhao-su@users.noreply.github.com",
+            "name": "Yuhao Su",
+            "username": "yuhao-su"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1715c137d0fb012c2b7c3893cabff8d07942bb3",
+          "message": "chore: bump arrow-udf and arrow-udf-runtime to v0.10.0 (#164)\n\nPrepare a 0.10.0 release for both publishable crates.\n\n### arrow-udf 0.9.0 → 0.10.0\n\n- Support list types such as `varchar[]` and `int32[]` as arguments of\nDuckDB scalar functions, backed by the new `duckdb` module (#158).\n\n`arrow-udf-macros` is bumped to `0.10.0` in lock step (pinned via\n`=0.10.0` by `arrow-udf`).\n\n### arrow-udf-runtime 0.9.0 → 0.10.0\n\n- Update `pyo3` from `0.24` to `0.29` for CPython 3.14 support (#160).\n\nThe JavaScript runtime stays on rquickjs 0.6; its upgrade is tracked in\n#162.\n\n## Test plan\n\n- [x] `cargo check -p arrow-udf -p arrow-udf-macros -p\narrow-udf-runtime`\n- [ ] CI green\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T03:53:01-05:00",
+          "tree_id": "53d881827678174c4450bfe9ee3c2c7310a81703",
+          "url": "https://github.com/arrow-udf/arrow-udf/commit/a1715c137d0fb012c2b7c3893cabff8d07942bb3"
+        },
+        "date": 1788426265937,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "gcd/native",
+            "value": 3573,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/rust",
+            "value": 3694,
+            "range": "± 57",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/wasm",
+            "value": 19135,
+            "range": "± 1064",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/js",
+            "value": 164617,
+            "range": "± 3930",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gcd/python",
+            "value": 181870,
+            "range": "± 4158",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/native",
+            "value": 26487,
+            "range": "± 1324",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/wasm",
+            "value": 302366,
+            "range": "± 23059",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/js",
+            "value": 4416683,
+            "range": "± 62655",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "range/python",
+            "value": 648002,
+            "range": "± 9672",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/js",
+            "value": 493256,
+            "range": "± 6158",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decimal/python",
+            "value": 5671640,
+            "range": "± 112963",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/js",
+            "value": 106937,
+            "range": "± 2321",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sum/python",
+            "value": 113008,
+            "range": "± 1890",
             "unit": "ns/iter"
           }
         ]
